@@ -8,6 +8,8 @@ use dex::config::{init_config, Config};
 use dex::llm::create_provider;
 use dex::tools::ToolRegistry;
 use tracing::{error, info};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Parser)]
 #[command(name = "dex")]
@@ -60,19 +62,33 @@ enum Commands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Setup tracing
-    let subscriber = tracing_subscriber::fmt()
-        .with_env_filter(
-            if cli.verbose {
-                "debug"
-            } else {
-                "info"
-            }
-        )
-        .finish();
-    
-    tracing::subscriber::set_global_default(subscriber)
-        .context("Failed to set tracing subscriber")?;
+    // Setup tracing - output to both console and file
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("dex.log")
+        .context("Failed to open dex.log")?;
+
+    let log_level = if cli.verbose { "debug" } else { "info" };
+
+    // Console layer (with colors)
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_env_filter(log_level);
+
+    // File layer (without colors, with timestamps)
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(log_file)
+        .with_ansi(false)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_line_number(true)
+        .with_file(true);
+
+    tracing_subscriber::registry()
+        .with(console_layer)
+        .with(file_layer)
+        .init();
 
     match cli.command {
         Some(Commands::Init) => {
